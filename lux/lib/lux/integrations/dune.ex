@@ -2,7 +2,17 @@ defmodule Lux.Integrations.Dune do
   @moduledoc """
   Integration with Dune Analytics API.
 
-  Allows fetching query results and running queries using the Dune v2 API.
+  Allows fetching query results and running queries using the Dune v1 API.
+
+  ## Configuration
+
+  The API key can be provided via application config or environment variable:
+
+      # config/config.exs
+      config :lux, Lux.Integrations.Dune,
+        api_key: "your-dune-api-key"
+
+  Or via the `DUNE_API_KEY` environment variable.
   """
 
   @doc """
@@ -36,23 +46,39 @@ defmodule Lux.Integrations.Dune do
   end
 
   @doc """
-  Authenticates a lens for Dune API requests.
+  Authenticates a lens for Dune API requests by injecting the x-dune-api-key header.
+
+  Returns the lens unchanged if the header is already present.
+  Raises a clear error message if no API key is configured.
   """
   @spec authenticate(map()) :: map()
   def authenticate(%{headers: headers} = lens) do
     case Enum.find(headers, fn {key, _} -> String.downcase(key) == "x-dune-api-key" end) do
       nil ->
-        %{lens | headers: [{"x-dune-api-key", api_key()} | headers]}
+        case api_key() do
+          nil ->
+            raise ArgumentError,
+                  "Dune API key not configured. " <>
+                    "Set it via `config :lux, Lux.Integrations.Dune, api_key: \"...\"` " <>
+                    "or via the DUNE_API_KEY environment variable."
+
+          key ->
+            %{lens | headers: [{"x-dune-api-key", key} | headers]}
+        end
+
       _ ->
         lens
     end
   end
 
-  # Gets the Dune API key from configuration.
-  @spec api_key() :: String.t()
+  @doc """
+  Gets the Dune API key from application config or environment variable.
+
+  Returns `nil` if neither is configured (caller should handle gracefully).
+  """
+  @spec api_key() :: String.t() | nil
   def api_key do
-    :lux
-    |> Application.get_env(__MODULE__)
-    |> Keyword.get(:api_key, System.get_env("DUNE_API_KEY"))
+    config = Application.get_env(:lux, __MODULE__, [])
+    Keyword.get(config, :api_key) || System.get_env("DUNE_API_KEY")
   end
 end
