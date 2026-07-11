@@ -8,6 +8,13 @@ defmodule Lux.NativeTest do
       assert Native.reverse_string("hello") == "olleh"
       assert Native.reverse_string("elixir and rust") == "tsur dna rixile"
     end
+
+    @tag timeout: 10_000
+    test "reverse_string/1 handles large inputs robustly without crashing (DirtyCpu test)" do
+      large_string = String.duplicate("abcdefghij", 1_000_000) # 10MB string
+      expected = String.duplicate("jihgfedcba", 1_000_000)
+      assert Native.reverse_string(large_string) == expected
+    end
   end
 
   describe "error handling framework" do
