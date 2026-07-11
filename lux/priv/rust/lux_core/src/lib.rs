@@ -1,4 +1,4 @@
-use rustler::{Env, Term, Atom};
+use rustler::{Env, Term, Atom, Encoder};
 pub mod errors;
 pub mod types;
 
@@ -41,4 +41,9 @@ fn transform_complex(env: Env, data: ComplexData) -> rustler::NifResult<Term> {
     crate::ok_tuple!(env, modified)
 }
 
-rustler::init!("Elixir.Lux.Native");
+rustler::init!("Elixir.Lux.Native", [
+    reverse_string,
+    parse_number,
+    process_payload,
+    transform_complex
+]);

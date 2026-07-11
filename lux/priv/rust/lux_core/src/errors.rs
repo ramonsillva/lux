@@ -1,4 +1,4 @@
-use rustler::{Atom, Env, Term};
+use rustler::{Atom, Env, Term, Encoder};
 use rustler::Error as RustlerError;
 
 rustler::atoms! {
@@ -15,8 +15,8 @@ rustler::atoms! {
 macro_rules! ok_tuple {
     ($env:expr, $val:expr) => {
         Ok(rustler::types::tuple::make_tuple($env, &[
-            $crate::errors::ok().to_term($env),
-            $val.to_term($env),
+            $crate::errors::ok().encode($env),
+            $val.encode($env),
         ]))
     };
 }
@@ -26,8 +26,8 @@ macro_rules! ok_tuple {
 macro_rules! error_tuple {
     ($env:expr, $reason:expr) => {
         Ok(rustler::types::tuple::make_tuple($env, &[
-            $crate::errors::error().to_term($env),
-            $reason.to_term($env),
+            $crate::errors::error().encode($env),
+            $reason.encode($env),
         ]))
     };
 }
@@ -35,7 +35,7 @@ macro_rules! error_tuple {
 /// Formats a string error into a rustler error term
 pub fn format_error<'a>(env: Env<'a>, message: &str) -> Term<'a> {
     rustler::types::tuple::make_tuple(env, &[
-        error().to_term(env),
-        message.to_term(env)
+        error().encode(env),
+        message.encode(env)
     ])
 }
