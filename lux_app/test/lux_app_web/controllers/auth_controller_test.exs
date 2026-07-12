@@ -75,7 +75,7 @@ defmodule LuxAppWeb.AuthControllerTest do
     test "succeeds via multisig EIP-1271 fallback", %{conn: conn} do
       multisig_message = """
       www.example.com wants you to sign in with your Ethereum account:
-      0xmultisig000000000000000000000000000000
+      0x7777777777777777777777777777777777777777
 
       URI: http://www.example.com
       Version: 1
@@ -88,7 +88,7 @@ defmodule LuxAppWeb.AuthControllerTest do
       valid_mock_signature = "0xvalid_eip1271_mock_signature_that_simulates_contract_response"
 
       conn = post(conn, "/api/auth/verify", %{"message" => multisig_message, "signature" => valid_mock_signature})
-      assert %{"success" => true, "address" => "0xmultisig000000000000000000000000000000"} = json_response(conn, 200)
+      assert %{"success" => true, "address" => "0x7777777777777777777777777777777777777777"} = json_response(conn, 200)
     end
   end
 
@@ -96,7 +96,7 @@ defmodule LuxAppWeb.AuthControllerTest do
     test "denies access to normal wallet", %{conn: conn} do
       conn = 
         conn
-        |> init_test_session(web3_address: "0xnormal_user")
+        |> init_test_session(web3_address: "0x1111111111111111111111111111111111111111")
         |> get("/api/profile")
         
       assert %{"error" => "Insufficient token balance for premium access."} = json_response(conn, 403)
@@ -105,7 +105,7 @@ defmodule LuxAppWeb.AuthControllerTest do
     test "allows access to VIP wallet", %{conn: conn} do
       conn = 
         conn
-        |> init_test_session(web3_address: "0xvip00000000000000000000000000000000000")
+        |> init_test_session(web3_address: "0x9999999999999999999999999999999999999999")
         |> get("/api/profile")
         
       assert %{"premium_access" => true} = json_response(conn, 200)

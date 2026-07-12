@@ -21,8 +21,8 @@ defmodule LuxAppWeb.Auth.Siwe do
   end
 
   def parse_message(message) do
-    # Regex robusto EIP-4361. Statement opcional e Domain permite portas.
-    regex = ~r/^(?<domain>[a-zA-Z0-9\.-]+(?::\d+)?) wants you to sign in with your Ethereum account:\n(?<address>0x[a-fA-F0-9]{40})\n\n(?:(?<statement>.*?)\n\n)?URI: (?<uri>.*?)\nVersion: (?<version>\d+)\nChain ID: (?<chain_id>\d+)\nNonce: (?<nonce>[a-zA-Z0-9]+)\nIssued At: (?<issued_at>.*?)(?:\nExpiration Time: (?<expiration_time>.*?))?(?:\n|$)/s
+    # Regex rigoroso EIP-4361. Evitamos .*? com s-flag para não vazar captura entre campos opcionais.
+    regex = ~r/^(?<domain>[a-zA-Z0-9\.-]+(?::\d+)?) wants you to sign in with your Ethereum account:\n(?<address>0x[a-fA-F0-9]{40})\n\n(?:(?<statement>[^\n]+)\n\n)?URI: (?<uri>[^\n]+)\nVersion: (?<version>\d+)\nChain ID: (?<chain_id>\d+)\nNonce: (?<nonce>[a-zA-Z0-9]+)\nIssued At: (?<issued_at>[^\n]+)(?:\nExpiration Time: (?<expiration_time>[^\n]+))?(?:\nNot Before: (?<not_before>[^\n]+))?(?:\nRequest ID: (?<request_id>[^\n]+))?(?:\nResources:\n(?<resources>.*))?$/s
 
     case Regex.named_captures(regex, message) do
       nil -> {:error, :invalid_siwe_message}
@@ -87,33 +87,31 @@ defmodule LuxAppWeb.Auth.Siwe do
     eth_message = "\x19Ethereum Signed Message:\n#{message_length}#{message}"
     
     hash = ExKeccak.hash_256(eth_message)
-    sig_bytes = Base.decode16!(String.replace(signature, "0x", ""), case: :mixed)
+    clean_sig = String.replace(signature, "0x", "")
     
-    if byte_size(sig_bytes) == 65 do
-      <<r::binary-size(32), s::binary-size(32), v::integer>> = sig_bytes
-      recovery_id = if v >= 27, do: v - 27, else: v
-      
-      case ExSecp256k1.recover(hash, r <> s, recovery_id) do
-        {:ok, pubkey} ->
-          <<4::integer, uncompressed_pubkey::binary-size(64)>> = pubkey
-          pub_hash = ExKeccak.hash_256(uncompressed_pubkey)
-          
-          <<_::binary-size(12), address_bytes::binary-size(20)>> = pub_hash
-          recovered_address = "0x" <> Base.encode16(address_bytes, case: :lower)
-          
-          if String.downcase(expected_address) == recovered_address do
-            :ok
-          else
+    case Base.decode16(clean_sig, case: :mixed) do
+      {:ok, <<r::binary-size(32), s::binary-size(32), v::integer>>} ->
+        recovery_id = if v >= 27, do: v - 27, else: v
+        
+        case ExSecp256k1.recover(hash, r <> s, recovery_id) do
+          {:ok, pubkey} ->
+            <<4::integer, uncompressed_pubkey::binary-size(64)>> = pubkey
+            pub_hash = ExKeccak.hash_256(uncompressed_pubkey)
+            
+            <<_::binary-size(12), address_bytes::binary-size(20)>> = pub_hash
+            recovered_address = "0x" <> Base.encode16(address_bytes, case: :lower)
+            
+            if String.downcase(expected_address) == recovered_address do
+              :ok
+            else
+              check_multisig_fallback(message, signature, expected_address)
+            end
+          _ ->
             check_multisig_fallback(message, signature, expected_address)
-          end
-        _ ->
-          check_multisig_fallback(message, signature, expected_address)
-      end
-    else
-      check_multisig_fallback(message, signature, expected_address)
+        end
+      _ ->
+        check_multisig_fallback(message, signature, expected_address)
     end
-  rescue
-    _ -> check_multisig_fallback(message, signature, expected_address)
   end
 
   defp check_multisig_fallback(message, signature, expected_address) do
