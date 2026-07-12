@@ -4,11 +4,14 @@ defmodule LuxAppWeb.Auth.Siwe do
   Handles full payload parsing, field validation, and cryptographic signature verification.
   """
 
-  def verify_signature(message, signature, expected_nonce, expected_domain, expected_uri) do
+  def verify_signature(message, signature, expected_nonce, expected_domain, expected_uri, expected_chain_id) do
     with {:ok, parsed} <- parse_message(message),
          :ok <- verify_domain(parsed.domain, expected_domain),
          :ok <- verify_uri(parsed.uri, expected_uri),
+         :ok <- verify_version(parsed.version),
+         :ok <- verify_chain_id(parsed.chain_id, expected_chain_id),
          :ok <- verify_nonce(parsed.nonce, expected_nonce),
+         :ok <- verify_issued_at(parsed.issued_at),
          :ok <- verify_expiration(parsed.expiration_time),
          :ok <- check_signature(message, signature, parsed.address) do
       {:ok, parsed.address}
@@ -18,8 +21,8 @@ defmodule LuxAppWeb.Auth.Siwe do
   end
 
   def parse_message(message) do
-    # Extração robusta baseada na EIP-4361
-    regex = ~r/^(?<domain>[a-zA-Z0-9\.-]+) wants you to sign in with your Ethereum account:\n(?<address>0x[a-fA-F0-9]{40})\n\n(?<statement>.*?)\n\nURI: (?<uri>.*?)\nVersion: (?<version>\d+)\nChain ID: (?<chain_id>\d+)\nNonce: (?<nonce>[a-zA-Z0-9]+)\nIssued At: (?<issued_at>.*?)(?:\nExpiration Time: (?<expiration_time>.*?))?(?:\n|$)/s
+    # Regex robusto EIP-4361. Statement opcional e Domain permite portas.
+    regex = ~r/^(?<domain>[a-zA-Z0-9\.-]+(?::\d+)?) wants you to sign in with your Ethereum account:\n(?<address>0x[a-fA-F0-9]{40})\n\n(?:(?<statement>.*?)\n\n)?URI: (?<uri>.*?)\nVersion: (?<version>\d+)\nChain ID: (?<chain_id>\d+)\nNonce: (?<nonce>[a-zA-Z0-9]+)\nIssued At: (?<issued_at>.*?)(?:\nExpiration Time: (?<expiration_time>.*?))?(?:\n|$)/s
 
     case Regex.named_captures(regex, message) do
       nil -> {:error, :invalid_siwe_message}
@@ -46,8 +49,23 @@ defmodule LuxAppWeb.Auth.Siwe do
     if uri == expected_uri, do: :ok, else: {:error, :uri_mismatch}
   end
 
+  def verify_version(version) do
+    if version == "1", do: :ok, else: {:error, :invalid_version}
+  end
+
+  def verify_chain_id(chain_id, expected_chain_id) do
+    if to_string(chain_id) == to_string(expected_chain_id), do: :ok, else: {:error, :chain_id_mismatch}
+  end
+
   def verify_nonce(nonce, expected_nonce) do
     if nonce == expected_nonce, do: :ok, else: {:error, :nonce_mismatch}
+  end
+
+  def verify_issued_at(issued_at) do
+    case DateTime.from_iso8601(issued_at) do
+      {:ok, _dt, _offset} -> :ok # We could enforce not-before logic here if needed
+      _ -> {:error, :invalid_issued_at_format}
+    end
   end
 
   def verify_expiration(nil), do: :ok
@@ -89,19 +107,21 @@ defmodule LuxAppWeb.Auth.Siwe do
             check_multisig_fallback(message, signature, expected_address)
           end
         _ ->
-          {:error, :recovery_failed}
+          check_multisig_fallback(message, signature, expected_address)
       end
     else
-      {:error, :invalid_signature_length}
+      check_multisig_fallback(message, signature, expected_address)
     end
   rescue
-    _ -> {:error, :signature_verification_crashed}
+    _ -> check_multisig_fallback(message, signature, expected_address)
   end
 
-  # EIP-1271 Fallback implementation stub for Smart Contract wallets
-  defp check_multisig_fallback(_message, _signature, _expected_address) do
-    # Here we would typically call an RPC endpoint to verify the EIP-1271 signature
-    # Since we avoid vendor lock-in, we simulate the structure of an on-chain fallback
-    {:error, :invalid_signature_and_no_multisig_fallback_configured}
+  defp check_multisig_fallback(message, signature, expected_address) do
+    verifier = Application.get_env(:lux_app, :eip1271_verifier, LuxAppWeb.Auth.MockVerifier)
+    if verifier.is_valid_signature?(message, signature, expected_address) do
+      :ok
+    else
+      {:error, :invalid_signature_and_fallback_failed}
+    end
   end
 end

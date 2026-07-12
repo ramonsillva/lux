@@ -18,12 +18,12 @@ defmodule LuxAppWeb.AuthController do
       conn |> put_status(:bad_request) |> json(%{error: "Nonce missing or expired."})
     else
       expected_domain = conn.host
-      # For testing flexibility, we could allow the URI from the SIWE message or hardcode it. 
-      # In this case we assume the origin URI is "http://localhost:4000" or similar.
-      # To be robust, we'll extract the scheme and host.
       expected_uri = "#{conn.scheme}://#{conn.host}" <> if(conn.port not in [80, 443], do: ":#{conn.port}", else: "")
+      
+      # Lendo o Chain ID do App env ou setando 1 (Mainnet) por padrão
+      expected_chain_id = Application.get_env(:lux_app, :expected_chain_id, "1")
 
-      case Siwe.verify_signature(message, signature, expected_nonce, expected_domain, expected_uri) do
+      case Siwe.verify_signature(message, signature, expected_nonce, expected_domain, expected_uri, expected_chain_id) do
         {:ok, address} ->
           # Clears the nonce after use to prevent replay attacks
           conn

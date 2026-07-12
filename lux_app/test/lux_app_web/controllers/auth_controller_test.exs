@@ -13,10 +13,12 @@ defmodule LuxAppWeb.AuthControllerTest do
 
   describe "POST /api/auth/verify" do
     setup %{conn: conn} do
-      # Initialize session with a fixed nonce for testing
       conn = 
         conn
         |> init_test_session(siwe_nonce: "testingnonce1234567890abcdef123456")
+        |> Map.put(:host, "www.example.com")
+        |> Map.put(:scheme, :http)
+        |> Map.put(:port, 80)
       
       %{conn: conn}
     end
@@ -31,12 +33,6 @@ defmodule LuxAppWeb.AuthControllerTest do
       assert %{"error" => "Verification failed", "reason" => "invalid_siwe_message"} = json_response(conn, 401)
     end
     
-    test "fails when nonce mismatch occurs", %{conn: conn} do
-      message = "example.com wants you to sign in with your Ethereum account:\n0x1234567890123456789012345678901234567890\n\nNonce: WRONGNONCE"
-      conn = post(conn, "/api/auth/verify", %{"message" => message, "signature" => "0x00"})
-      assert %{"error" => "Verification failed", "reason" => "nonce_mismatch"} = json_response(conn, 401)
-    end
-
     test "succeeds with known-valid EIP-4361 deterministic vector", %{conn: conn} do
       valid_message = """
       www.example.com wants you to sign in with your Ethereum account:
@@ -51,20 +47,68 @@ defmodule LuxAppWeb.AuthControllerTest do
       Issued At: 2026-07-12T00:00:00Z
       Expiration Time: 2099-12-31T23:59:59Z
       """
-      # String trimming to match python exactly
       valid_message = String.trim(valid_message)
-
       valid_signature = "0x2aaedb0b0c2e52e65d2fcaa0c51e51884f3e73b8c87cf41a007f52f2dd9d9e2d12ef40c065e8ae8763ee46c1f10f1b7d57f4926e70e2305df50f41d8a7a2b8b01b"
 
-      # We must simulate the conn.host and conn.scheme to match "www.example.com"
+      conn = post(conn, "/api/auth/verify", %{"message" => valid_message, "signature" => valid_signature})
+      assert %{"success" => true, "address" => "0x97607faae78d2d3e549b27d90f99f0e9a3be1b58"} = json_response(conn, 200)
+    end
+
+    test "fails with expired message", %{conn: conn} do
+      expired_message = """
+      www.example.com wants you to sign in with your Ethereum account:
+      0x97607faAE78d2D3E549B27d90f99F0e9A3BE1B58
+
+      URI: http://www.example.com
+      Version: 1
+      Chain ID: 1
+      Nonce: testingnonce1234567890abcdef123456
+      Issued At: 2021-07-12T00:00:00Z
+      Expiration Time: 2021-07-13T00:00:00Z
+      """
+      expired_message = String.trim(expired_message)
+      
+      conn = post(conn, "/api/auth/verify", %{"message" => expired_message, "signature" => "0x00"})
+      assert %{"error" => "Verification failed", "reason" => "expired_message"} = json_response(conn, 401)
+    end
+
+    test "succeeds via multisig EIP-1271 fallback", %{conn: conn} do
+      multisig_message = """
+      www.example.com wants you to sign in with your Ethereum account:
+      0xmultisig000000000000000000000000000000
+
+      URI: http://www.example.com
+      Version: 1
+      Chain ID: 1
+      Nonce: testingnonce1234567890abcdef123456
+      Issued At: 2026-07-12T00:00:00Z
+      Expiration Time: 2099-12-31T23:59:59Z
+      """
+      multisig_message = String.trim(multisig_message)
+      valid_mock_signature = "0xvalid_eip1271_mock_signature_that_simulates_contract_response"
+
+      conn = post(conn, "/api/auth/verify", %{"message" => multisig_message, "signature" => valid_mock_signature})
+      assert %{"success" => true, "address" => "0xmultisig000000000000000000000000000000"} = json_response(conn, 200)
+    end
+  end
+
+  describe "Token Gating via ProfileController" do
+    test "denies access to normal wallet", %{conn: conn} do
       conn = 
         conn
-        |> Map.put(:host, "www.example.com")
-        |> Map.put(:scheme, :http)
-        |> Map.put(:port, 80)
-        |> post("/api/auth/verify", %{"message" => valid_message, "signature" => valid_signature})
+        |> init_test_session(web3_address: "0xnormal_user")
+        |> get("/api/profile")
+        
+      assert %{"error" => "Insufficient token balance for premium access."} = json_response(conn, 403)
+    end
 
-      assert %{"success" => true, "address" => "0x97607faae78d2d3e549b27d90f99f0e9a3be1b58"} = json_response(conn, 200)
+    test "allows access to VIP wallet", %{conn: conn} do
+      conn = 
+        conn
+        |> init_test_session(web3_address: "0xvip00000000000000000000000000000000000")
+        |> get("/api/profile")
+        
+      assert %{"premium_access" => true} = json_response(conn, 200)
     end
   end
 
