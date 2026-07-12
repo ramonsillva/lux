@@ -20,8 +20,8 @@ defmodule LuxApp.TxManager.GasOracle do
 
   @impl true
   def init(_opts) do
-    # Default base fee of 30 gwei
-    {:ok, %{base_fee: 30.0}}
+    # Initializes with a base fee (e.g., 30 gwei in wei)
+    {:ok, %{base_fee: 30_000_000_000, history: []}}
   end
 
   @impl true
@@ -32,5 +32,19 @@ defmodule LuxApp.TxManager.GasOracle do
   @impl true
   def handle_cast({:set_base_fee, fee}, state) do
     {:noreply, %{state | base_fee: fee}}
+  end
+
+  @doc """
+  Updates the base fee using an Exponential Moving Average (EMA) to predict short-term trends.
+  """
+  def update_with_ema(new_block_base_fee) do
+    GenServer.cast(__MODULE__, {:update_ema, new_block_base_fee})
+  end
+
+  @impl true
+  def handle_cast({:update_ema, new_fee}, state) do
+    # Alpha 0.3 for EMA smoothing
+    ema_fee = trunc((new_fee * 0.3) + (state.base_fee * 0.7))
+    {:noreply, %{state | base_fee: ema_fee, history: [new_fee | Enum.take(state.history, 9)]}}
   end
 end

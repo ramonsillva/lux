@@ -15,17 +15,17 @@ defmodule LuxApp.TxManagerTest do
   end
 
   test "EIP-1559 Optimization Strategies" do
-    GasOracle.set_mock_base_fee(50.0)
+    GasOracle.set_mock_base_fee(50_000_000_000)
 
     # Economy strategy
     economy = TxManager.optimize_gas_fees(:economy)
-    assert economy.max_priority_fee_per_gas == 1.0
-    assert economy.max_fee_per_gas == 101.0 # (50 * 2) + 1
+    assert economy.max_priority_fee_per_gas == 1_000_000_000
+    assert economy.max_fee_per_gas == 101_000_000_000 # (50Gwei * 2) + 1Gwei
 
     # Fast strategy
     fast = TxManager.optimize_gas_fees(:fast)
-    assert fast.max_priority_fee_per_gas == 5.0
-    assert fast.max_fee_per_gas == 105.0 # (50 * 2) + 5
+    assert fast.max_priority_fee_per_gas == 5_000_000_000
+    assert fast.max_fee_per_gas == 105_000_000_000 # (50Gwei * 2) + 5Gwei
   end
 
   test "Transaction Batching & Reporting" do
@@ -47,18 +47,18 @@ defmodule LuxApp.TxManagerTest do
   end
 
   test "Transaction Replacement (Speed Up / Cancel)" do
-    tx = %{from: "0xA", nonce: 5, max_fee_per_gas: 100.0, max_priority_fee_per_gas: 2.0}
+    tx = %{from: "0xA", nonce: 5, max_fee_per_gas: 100_000_000_000, max_priority_fee_per_gas: 2_000_000_000}
 
     speed_up_tx = TxManager.speed_up(tx)
-    assert speed_up_tx.max_fee_per_gas == 110.0 # 10% bump
-    assert speed_up_tx.max_priority_fee_per_gas == 2.2 # 10% bump
+    assert speed_up_tx.max_fee_per_gas == 110_000_000_000 # 10% bump
+    assert speed_up_tx.max_priority_fee_per_gas == 2_200_000_000 # 10% bump
     assert speed_up_tx.nonce == 5
 
     cancel_tx = TxManager.cancel(tx)
     assert cancel_tx.to == "0xA"
     assert cancel_tx.value == 0
-    assert cancel_tx.max_fee_per_gas == 110.0
-    assert cancel_tx.max_priority_fee_per_gas == 2.2
+    assert cancel_tx.max_fee_per_gas == 110_000_000_000
+    assert cancel_tx.max_priority_fee_per_gas == 2_200_000_000
   end
 
   test "MEV Protection Wrappers" do

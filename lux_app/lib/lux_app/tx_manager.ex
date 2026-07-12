@@ -1,6 +1,23 @@
 defmodule LuxApp.TxManager do
   @moduledoc """
   Context facade for Gas Optimization and Transaction Management.
+  
+  ## Architecture
+  This module orchestrates EVM transactions to guarantee cost efficiency and protection.
+  
+  ## Examples
+  
+      # 1. Optimize gas fees using EIP-1559 strategy
+      fees = LuxApp.TxManager.optimize_gas_fees(:fast)
+      
+      # 2. Batch multiple transactions to save base gas (21k per tx)
+      batch = LuxApp.TxManager.batch_transactions([%{to: "0x1"}, %{to: "0x2"}])
+      
+      # 3. Protect against MEV using Flashbots
+      protected_tx = LuxApp.TxManager.protect_transaction(batch, builder: "flashbots")
+      
+      # 4. Speed up a stuck transaction
+      faster_tx = LuxApp.TxManager.speed_up(stuck_tx)
   """
   
   alias LuxApp.TxManager.{GasOracle, Batcher, Optimizer, Replacer, MevProtector, Simulator, Reporter}

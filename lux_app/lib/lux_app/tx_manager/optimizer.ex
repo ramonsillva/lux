@@ -10,16 +10,17 @@ defmodule LuxApp.TxManager.Optimizer do
   def calculate_eip1559_fees(base_fee, strategy) do
     priority_fee = get_priority_fee(strategy)
     
-    # maxFeePerGas = (base_fee * 2) + priority_fee (Standard EIP-1559 formula to handle base_fee spikes)
+    # maxFeePerGas = (base_fee * 2) + priority_fee (Standard EIP-1559 formula)
     max_fee = (base_fee * 2) + priority_fee
 
     %{
-      max_fee_per_gas: Float.round(max_fee, 2),
-      max_priority_fee_per_gas: Float.round(priority_fee, 2)
+      max_fee_per_gas: trunc(max_fee),
+      max_priority_fee_per_gas: trunc(priority_fee)
     }
   end
 
-  defp get_priority_fee(:economy), do: 1.0
-  defp get_priority_fee(:standard), do: 2.0
-  defp get_priority_fee(:fast), do: 5.0
+  # Returns priority fee in Wei (1 gwei = 1_000_000_000 wei)
+  defp get_priority_fee(:economy), do: 1_000_000_000
+  defp get_priority_fee(:standard), do: 2_000_000_000
+  defp get_priority_fee(:fast), do: 5_000_000_000
 end

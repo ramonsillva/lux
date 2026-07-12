@@ -24,7 +24,11 @@ defmodule LuxApp.TxManager.Replacer do
     }
   end
 
+  # Bumps the fee by exactly 10% using integer math to avoid EVM Float precision errors
+  defp bump_10_percent(fee) when is_integer(fee) do
+    div(fee * 110, 100)
+  end
   defp bump_10_percent(fee) do
-    Float.round(fee * 1.10, 2)
+    trunc(fee * 1.10)
   end
 end
