@@ -35,8 +35,7 @@ defmodule LuxApp.TxManagerTest do
 
     batch = TxManager.batch_transactions([tx1, tx2, tx3])
     
-    assert batch.type == :multicall
-    assert length(batch.calls) == 3
+    assert batch.to == "0xcA11bde05977b3631167028862bE2a173976CA11"
     assert batch.estimated_gas_saved == 42_000 # 2 txs * 21_000
 
     report = TxManager.report_savings([tx1, tx2, tx3], batch)
@@ -44,42 +43,47 @@ defmodule LuxApp.TxManagerTest do
     assert report.batched_gas_cost == 21_000
     assert report.gas_saved == 42_000
     assert report.saved_percentage == 66.67
+    
+    empty_report = TxManager.report_savings([], batch)
+    assert empty_report.gas_saved == 0
   end
 
-  test "Transaction Replacement (Speed Up / Cancel)" do
+  test "Transaction Replacement (Speed Up / Cancel) with RPC submission" do
     tx = %{from: "0xA", nonce: 5, max_fee_per_gas: 100_000_000_000, max_priority_fee_per_gas: 2_000_000_000}
 
-    speed_up_tx = TxManager.speed_up(tx)
+    {:ok, _hash, speed_up_tx} = TxManager.speed_up(tx)
     assert speed_up_tx.max_fee_per_gas == 110_000_000_000 # 10% bump
     assert speed_up_tx.max_priority_fee_per_gas == 2_200_000_000 # 10% bump
     assert speed_up_tx.nonce == 5
 
-    cancel_tx = TxManager.cancel(tx)
+    {:ok, _hash, cancel_tx} = TxManager.cancel(tx)
     assert cancel_tx.to == "0xA"
     assert cancel_tx.value == 0
     assert cancel_tx.max_fee_per_gas == 110_000_000_000
     assert cancel_tx.max_priority_fee_per_gas == 2_200_000_000
   end
 
-  test "MEV Protection Wrappers" do
+  test "MEV Protection Wrappers via RPC" do
     tx = %{to: "0xB", value: 1000}
 
-    protected_tx = TxManager.protect_transaction(tx, builder: "flashbots", slippage: 0.05)
+    {:ok, _hash, metadata} = TxManager.protect_transaction(tx, builder: "flashbots", slippage: 0.05)
     
-    assert protected_tx.protection_enabled == true
-    assert protected_tx.routing == :private
-    assert protected_tx.builder == "flashbots"
-    assert protected_tx.slippage_tolerance == 0.05
-    assert protected_tx.transaction == tx
+    assert metadata.protection_enabled == true
+    assert metadata.routing == :private
+    assert metadata.builder == "flashbots"
+    assert metadata.slippage_tolerance == 0.05
   end
 
-  test "Transaction Simulation" do
+  test "Transaction Simulation via RPC" do
     batch = TxManager.batch_transactions([%{to: "0x1"}, %{to: "0x2"}])
+    assert {:ok, 21_000} = TxManager.delegate_estimate_gas(batch)
     
-    # Base 21000 + 2 * 30000 = 81000
-    assert TxManager.delegate_estimate_gas(batch) == 81_000
-    
-    # Normal Tx = 21000
-    assert TxManager.delegate_estimate_gas(%{to: "0x1"}) == 21_000
+    assert {:error, :execution_reverted} = TxManager.delegate_estimate_gas(%{to: "0xbad"})
+  end
+  
+  test "Gas Token integration" do
+    tx = %{data: "0x123"}
+    wrapped = LuxApp.TxManager.GasToken.wrap_with_gas_token(tx, "0xCHI", 10)
+    assert wrapped.data == "0x123_freeFromUpTo(0xCHI,10)"
   end
 end

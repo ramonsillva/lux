@@ -3,20 +3,27 @@ defmodule LuxApp.TxManager.MevProtector do
   MEV protection features and private RPC routing.
   """
 
+  @rpc_adapter Application.compile_env(:lux_app, :rpc_adapter, LuxApp.TxManager.MockRPC)
+
   @doc """
-  Wraps a transaction to be routed through private mempools (like Flashbots).
-  Can include slippage tolerance headers.
+  Wraps and submits a transaction to private mempools (like Flashbots).
+  Includes slippage tolerance mechanisms.
   """
   def wrap_for_private_mempool(tx, options \\ []) do
     builder = Keyword.get(options, :builder, "flashbots")
     slippage = Keyword.get(options, :slippage, 0.01) # 1% default
 
-    %{
-      transaction: tx,
+    metadata = %{
       routing: :private,
       builder: builder,
       slippage_tolerance: slippage,
       protection_enabled: true
     }
+
+    # Simulate submission boundary
+    case @rpc_adapter.send_private_transaction(tx, builder) do
+      {:ok, hash} -> {:ok, hash, metadata}
+      {:error, reason} -> {:error, reason}
+    end
   end
 end

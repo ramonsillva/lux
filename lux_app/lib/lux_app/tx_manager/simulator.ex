@@ -3,14 +3,16 @@ defmodule LuxApp.TxManager.Simulator do
   Transaction simulation system.
   """
 
-  def estimate(%{type: :multicall, calls: calls}) do
-    # Simula 21000 custo base + 30000 por cada chamada interna
-    21_000 + (length(calls) * 30_000)
-  end
+  @rpc_adapter Application.compile_env(:lux_app, :rpc_adapter, LuxApp.TxManager.MockRPC)
 
-  def estimate(_tx) do
-    # Simulando uma tx padrão
-    21_000
+  @doc """
+  Simulates a transaction execution using the RPC Adapter to estimate required gas.
+  """
+  def estimate(tx) do
+    case @rpc_adapter.estimate_gas(tx) do
+      {:ok, gas_limit} -> {:ok, gas_limit}
+      {:error, reason} -> {:error, reason}
+    end
   end
 end
 
@@ -18,6 +20,15 @@ defmodule LuxApp.TxManager.Reporter do
   @moduledoc """
   Cost analysis reporting.
   """
+
+  def calculate_savings([], _batched_tx) do
+    %{
+      original_gas_cost: 0,
+      batched_gas_cost: 0,
+      gas_saved: 0,
+      saved_percentage: 0.0
+    }
+  end
 
   def calculate_savings(original_txs, batched_tx) do
     original_gas = length(original_txs) * 21_000
