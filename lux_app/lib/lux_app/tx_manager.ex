@@ -20,7 +20,9 @@ defmodule LuxApp.TxManager do
       faster_tx = LuxApp.TxManager.speed_up(stuck_tx)
   """
   
-  alias LuxApp.TxManager.{GasOracle, Batcher, Optimizer, Replacer, MevProtector, Simulator, Reporter}
+  alias LuxApp.TxManager.{GasOracle, Batcher, Optimizer, Replacer, MevProtector, Simulator, Reporter, GasToken}
+
+  @rpc_adapter Application.compile_env(:lux_app, :rpc_adapter, LuxApp.TxManager.MockRPC)
 
   def delegate_estimate_gas(tx), do: Simulator.estimate(tx)
   
@@ -39,4 +41,8 @@ defmodule LuxApp.TxManager do
   def batch_transactions(txs), do: Batcher.create_multicall(txs)
   
   def report_savings(original_txs, batched_tx), do: Reporter.calculate_savings(original_txs, batched_tx)
+  
+  def apply_gas_token(tx, token_address, amount), do: GasToken.wrap_with_gas_token(tx, token_address, amount)
+  
+  def wait_for_receipt(hash), do: @rpc_adapter.get_transaction_receipt(hash)
 end

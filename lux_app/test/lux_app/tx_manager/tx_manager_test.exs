@@ -4,15 +4,8 @@ defmodule LuxApp.TxManagerTest do
   alias LuxApp.TxManager
   alias LuxApp.TxManager.GasOracle
 
-  setup do
-    # Ensure GasOracle is started for tests
-    case GasOracle.start_link([]) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
-
-    :ok
-  end
+  # GasOracle is now properly supervised by LuxApp.Application
+  # No manual start_link required here.
 
   test "EIP-1559 Optimization Strategies" do
     GasOracle.set_mock_base_fee(50_000_000_000)
