@@ -72,6 +72,43 @@ defmodule LuxAppWeb.AuthControllerTest do
       assert %{"error" => "Verification failed", "reason" => "expired_message"} = json_response(conn, 401)
     end
 
+    test "fails with not_before (nbf) in the future", %{conn: conn} do
+      nbf_message = """
+      www.example.com wants you to sign in with your Ethereum account:
+      0x97607faAE78d2D3E549B27d90f99F0e9A3BE1B58
+
+      URI: http://www.example.com
+      Version: 1
+      Chain ID: 1
+      Nonce: testingnonce1234567890abcdef123456
+      Issued At: 2026-07-12T00:00:00Z
+      Expiration Time: 2099-12-31T23:59:59Z
+      Not Before: 2099-01-01T00:00:00Z
+      """
+      nbf_message = String.trim(nbf_message)
+
+      conn = post(conn, "/api/auth/verify", %{"message" => nbf_message, "signature" => "0x00"})
+      assert %{"error" => "Verification failed", "reason" => "message_not_yet_valid"} = json_response(conn, 401)
+    end
+
+    test "fails with issued_at in the future", %{conn: conn} do
+      future_iat_message = """
+      www.example.com wants you to sign in with your Ethereum account:
+      0x97607faAE78d2D3E549B27d90f99F0e9A3BE1B58
+
+      URI: http://www.example.com
+      Version: 1
+      Chain ID: 1
+      Nonce: testingnonce1234567890abcdef123456
+      Issued At: 2099-12-31T23:59:59Z
+      Expiration Time: 2099-12-31T23:59:59Z
+      """
+      future_iat_message = String.trim(future_iat_message)
+
+      conn = post(conn, "/api/auth/verify", %{"message" => future_iat_message, "signature" => "0x00"})
+      assert %{"error" => "Verification failed", "reason" => "issued_at_in_future"} = json_response(conn, 401)
+    end
+
     test "succeeds via multisig EIP-1271 fallback", %{conn: conn} do
       multisig_message = """
       www.example.com wants you to sign in with your Ethereum account:
