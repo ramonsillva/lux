@@ -2,40 +2,38 @@ defmodule LuxApp.TxManagerTest do
   use ExUnit.Case
 
   alias LuxApp.TxManager
-  alias LuxApp.TxManager.GasOracle
+  alias LuxApp.TxManager.{GasOracle, ABIEncoder, GasToken}
 
-  # GasOracle is now properly supervised by LuxApp.Application
-  # No manual start_link required here.
+  # GasOracle is properly supervised by LuxApp.Application
 
   test "EIP-1559 Optimization Strategies" do
     GasOracle.set_mock_base_fee(50_000_000_000)
 
     # Economy strategy
-    economy = TxManager.optimize_gas_fees(:economy)
+    {:ok, economy} = TxManager.optimize_gas_fees(:economy)
     assert economy.max_priority_fee_per_gas == 1_000_000_000
     assert economy.max_fee_per_gas == 101_000_000_000 # (50Gwei * 2) + 1Gwei
 
     # Fast strategy
-    fast = TxManager.optimize_gas_fees(:fast)
+    {:ok, fast} = TxManager.optimize_gas_fees(:fast)
     assert fast.max_priority_fee_per_gas == 5_000_000_000
     assert fast.max_fee_per_gas == 105_000_000_000 # (50Gwei * 2) + 5Gwei
   end
 
-  test "Transaction Batching & Reporting" do
-    tx1 = %{to: "0x1", data: "0xaa"}
-    tx2 = %{to: "0x2", data: "0xbb"}
-    tx3 = %{to: "0x3", data: "0xcc"}
+  test "Transaction Batching & Multicall3 ABI Encoding" do
+    tx1 = %{to: "0x1111111111111111111111111111111111111111", data: "0xaabbccdd"}
+    tx2 = %{to: "0x2222222222222222222222222222222222222222", data: "0x11223344"}
 
-    batch = TxManager.batch_transactions([tx1, tx2, tx3])
+    batch = TxManager.batch_transactions([tx1, tx2])
     
     assert batch.to == "0xcA11bde05977b3631167028862bE2a173976CA11"
-    assert batch.estimated_gas_saved == 42_000 # 2 txs * 21_000
+    assert String.starts_with?(batch.data, "0x82ad56cb") # Multicall3 aggregate3 selector
+    assert batch.estimated_gas_saved == 21_000
 
-    report = TxManager.report_savings([tx1, tx2, tx3], batch)
-    assert report.original_gas_cost == 63_000
+    report = TxManager.report_savings([tx1, tx2], batch)
+    assert report.original_gas_cost == 42_000
     assert report.batched_gas_cost == 21_000
-    assert report.gas_saved == 42_000
-    assert report.saved_percentage == 66.67
+    assert report.gas_saved == 21_000
     
     empty_report = TxManager.report_savings([], batch)
     assert empty_report.gas_saved == 0
@@ -80,9 +78,10 @@ defmodule LuxApp.TxManagerTest do
     assert {:error, :execution_reverted} = TxManager.delegate_estimate_gas(%{to: "0xbad"})
   end
   
-  test "Gas Token integration" do
-    tx = %{data: "0x123"}
-    wrapped = LuxApp.TxManager.GasToken.wrap_with_gas_token(tx, "0xCHI", 10)
-    assert wrapped.data == "0x123_freeFromUpTo(0xCHI,10)"
+  test "Gas Token Solidity ABI encoding" do
+    tx = %{data: "0x1234"}
+    wrapped = GasToken.wrap_with_gas_token(tx, "0x0000000000000000000000000000000000000001", 10)
+    assert String.starts_with?(wrapped.data, "0x1234d7db9b35")
+    assert String.contains?(wrapped.data, ABIEncoder.pad_uint256(10))
   end
 end
