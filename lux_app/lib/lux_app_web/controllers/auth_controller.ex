@@ -1,7 +1,7 @@
 defmodule LuxAppWeb.AuthController do
   use LuxAppWeb, :controller
 
-  alias LuxAppWeb.Auth.Siwe
+  alias LuxAppWeb.Auth.{Siwe, SessionManager}
 
   def nonce(conn, _params) do
     nonce = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
@@ -19,18 +19,16 @@ defmodule LuxAppWeb.AuthController do
     else
       expected_domain = conn.host
       expected_uri = "#{conn.scheme}://#{conn.host}" <> if(conn.port not in [80, 443], do: ":#{conn.port}", else: "")
-      
-      # Lendo o Chain ID do App env ou setando 1 (Mainnet) por padrão
       expected_chain_id = Application.get_env(:lux_app, :expected_chain_id, "1")
 
       case Siwe.verify_signature(message, signature, expected_nonce, expected_domain, expected_uri, expected_chain_id) do
         {:ok, address} ->
-          # Clears the nonce after use to prevent replay attacks
-          conn
-          |> delete_session(:siwe_nonce)
-          |> put_session(:web3_address, address)
-          |> put_session(:role, "user") # Default role
-          |> json(%{success: true, address: address})
+          conn = 
+            conn
+            |> delete_session(:siwe_nonce)
+            |> SessionManager.init_session(address, "user")
+
+          json(conn, %{success: true, address: address})
 
         {:error, reason} ->
           conn

@@ -163,4 +163,25 @@ defmodule LuxAppWeb.AuthControllerTest do
       assert get_session(conn, :web3_address) == nil
     end
   end
+
+  describe "SessionManager and Permissions RBAC" do
+    alias LuxAppWeb.Auth.{SessionManager, Permissions}
+
+    test "validates active session and rejects expired session", %{conn: conn} do
+      conn = init_test_session(conn, %{})
+      conn = SessionManager.init_session(conn, "0x123", "user", 86400)
+
+      assert {:ok, _conn} = SessionManager.validate_session(conn)
+
+      # Expired session (expires_at in the past)
+      expired_conn = init_test_session(conn, expires_at: System.system_time(:second) - 100)
+      assert {:error, :session_expired} = SessionManager.validate_session(expired_conn)
+    end
+
+    test "enforces role permissions correctly" do
+      assert Permissions.has_permission?("admin", :manage_users) == true
+      assert Permissions.has_permission?("user", :manage_users) == false
+      assert Permissions.has_permission?("user", :read) == true
+    end
+  end
 end
