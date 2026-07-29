@@ -56,6 +56,12 @@ defmodule LuxApp.TxManagerTest do
     assert cancel_tx.max_priority_fee_per_gas == 2_200_000_000
   end
 
+  test "Transaction Replacement bounded retries on underpriced error" do
+    tx = %{from: "0xA", nonce: 5, max_fee_per_gas: 100_000_000_000, max_priority_fee_per_gas: 2_000_000_000, simulated_error: :replacement_underpriced}
+
+    assert {:error, :max_replacement_retries_exceeded} = TxManager.speed_up(tx)
+  end
+
   test "MEV Protection Wrappers via RPC" do
     tx = %{to: "0xB", value: 1000}
 
