@@ -1,34 +1,19 @@
 defmodule LuxApp.TxManager do
   @moduledoc """
   Context facade for Gas Optimization and Transaction Management.
-  
-  ## Architecture
-  This module orchestrates EVM transactions to guarantee cost efficiency and protection.
-  
-  ## Examples
-  
-      # 1. Optimize gas fees using EIP-1559 strategy
-      fees = LuxApp.TxManager.optimize_gas_fees(:fast)
-      
-      # 2. Batch multiple transactions to save base gas (21k per tx)
-      batch = LuxApp.TxManager.batch_transactions([%{to: "0x1"}, %{to: "0x2"}])
-      
-      # 3. Protect against MEV using Flashbots
-      protected_tx = LuxApp.TxManager.protect_transaction(batch, builder: "flashbots")
-      
-      # 4. Speed up a stuck transaction
-      faster_tx = LuxApp.TxManager.speed_up(stuck_tx)
   """
-  
   alias LuxApp.TxManager.{GasOracle, Batcher, Optimizer, Replacer, MevProtector, Simulator, Reporter, GasToken}
 
-  @rpc_adapter Application.compile_env(:lux_app, :rpc_adapter, LuxApp.TxManager.MockRPC)
+  @rpc_adapter Application.compile_env(:lux_app, :rpc_adapter, LuxApp.TxManager.RealRPC)
 
   def delegate_estimate_gas(tx), do: Simulator.estimate(tx)
   
   def optimize_gas_fees(strategy \\ :standard) do
-    base_fee = GasOracle.get_current_base_fee()
-    Optimizer.calculate_eip1559_fees(base_fee, strategy)
+    case GasOracle.get_current_base_fee() do
+      {:ok, base_fee} -> {:ok, Optimizer.calculate_eip1559_fees(base_fee, strategy)}
+      base_fee when is_integer(base_fee) -> {:ok, Optimizer.calculate_eip1559_fees(base_fee, strategy)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def protect_transaction(tx, options \\ []) do

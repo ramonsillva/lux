@@ -53,8 +53,13 @@ defmodule LuxApp.TxManager.ABIEncoder do
   end
 
   def pad_bytes_right(hex) when is_binary(hex) do
-    target_len = trunc(Float.ceil(byte_size(hex) / 64) * 64)
-    target_len = if target_len == 0, do: 64, else: target_len
-    String.pad_trailing(hex, target_len, "0") |> String.downcase()
+    clean = String.replace(hex, "0x", "")
+    if clean == "" do
+      ""
+    else
+      target_len = trunc(Float.ceil(byte_size(clean) / 64) * 64)
+      target_len = if target_len == 0, do: 64, else: target_len
+      String.pad_trailing(clean, target_len, "0") |> String.downcase()
+    end
   end
 end

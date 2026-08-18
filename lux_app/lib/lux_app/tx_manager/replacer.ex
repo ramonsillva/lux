@@ -5,6 +5,8 @@ defmodule LuxApp.TxManager.Replacer do
   Bounded retry limit prevents infinite recursion.
   """
 
+  alias LuxApp.TxManager.TxEncoder
+
   @rpc_adapter Application.compile_env(:lux_app, :rpc_adapter, LuxApp.TxManager.RealRPC)
   @max_retries 3
 
@@ -20,7 +22,11 @@ defmodule LuxApp.TxManager.Replacer do
         max_fee_per_gas: bump_10_percent(tx.max_fee_per_gas),
         max_priority_fee_per_gas: bump_10_percent(tx.max_priority_fee_per_gas)
       }
-      send_replacement(new_tx, retry_count)
+      
+      signed_raw_tx = TxEncoder.encode_and_sign(new_tx)
+      final_tx = Map.put(new_tx, :raw_tx, signed_raw_tx)
+
+      send_replacement(final_tx, retry_count)
     end
   end
 
@@ -40,18 +46,22 @@ defmodule LuxApp.TxManager.Replacer do
         max_fee_per_gas: bump_10_percent(tx.max_fee_per_gas),
         max_priority_fee_per_gas: bump_10_percent(tx.max_priority_fee_per_gas)
       }
-      send_replacement(new_tx, retry_count)
+      
+      signed_raw_tx = TxEncoder.encode_and_sign(new_tx)
+      final_tx = Map.put(new_tx, :raw_tx, signed_raw_tx)
+
+      send_replacement(final_tx, retry_count)
     end
   end
 
-  defp send_replacement(new_tx, retry_count) do
-    case @rpc_adapter.send_transaction(new_tx) do
+  defp send_replacement(final_tx, retry_count) do
+    case @rpc_adapter.send_transaction(final_tx) do
       {:ok, hash} ->
-        {:ok, hash, new_tx}
+        {:ok, hash, final_tx}
 
       {:error, :replacement_underpriced} ->
         # Bump again automatically up to max_retries
-        speed_up(new_tx, retry_count + 1)
+        speed_up(final_tx, retry_count + 1)
 
       {:error, reason} ->
         {:error, reason}
