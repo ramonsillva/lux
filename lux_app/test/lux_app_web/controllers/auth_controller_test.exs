@@ -1,6 +1,8 @@
 defmodule LuxAppWeb.AuthControllerTest do
   use LuxAppWeb.ConnCase
 
+  alias LuxAppWeb.Auth.{SessionManager, Permissions, RPCVerifier, RPCTokenGater}
+
   describe "GET /api/auth/nonce" do
     test "returns a 32-character hex nonce and sets it in session", %{conn: conn} do
       conn = get(conn, "/api/auth/nonce")
@@ -109,7 +111,7 @@ defmodule LuxAppWeb.AuthControllerTest do
       assert %{"error" => "Verification failed", "reason" => "issued_at_in_future"} = json_response(conn, 401)
     end
 
-    test "succeeds via multisig EIP-1271 fallback", %{conn: conn} do
+    test "succeeds via multisig EIP-1271 fallback bound to chain_id", %{conn: conn} do
       multisig_message = """
       www.example.com wants you to sign in with your Ethereum account:
       0x7777777777777777777777777777777777777777
@@ -129,12 +131,12 @@ defmodule LuxAppWeb.AuthControllerTest do
     end
   end
 
-  describe "Token Gating via ProfileController" do
+  describe "Token Gating via ProfileController on /api/secure/profile" do
     test "denies access to normal wallet", %{conn: conn} do
       conn = 
         conn
-        |> init_test_session(web3_address: "0x1111111111111111111111111111111111111111")
-        |> get("/api/profile")
+        |> init_test_session(web3_address: "0x1111111111111111111111111111111111111111", expires_at: System.system_time(:second) + 3600)
+        |> get("/api/secure/profile")
         
       assert %{"error" => "Insufficient token balance for premium access."} = json_response(conn, 403)
     end
@@ -142,10 +144,19 @@ defmodule LuxAppWeb.AuthControllerTest do
     test "allows access to VIP wallet", %{conn: conn} do
       conn = 
         conn
-        |> init_test_session(web3_address: "0x9999999999999999999999999999999999999999")
-        |> get("/api/profile")
+        |> init_test_session(web3_address: "0x9999999999999999999999999999999999999999", expires_at: System.system_time(:second) + 3600)
+        |> get("/api/secure/profile")
         
       assert %{"premium_access" => true} = json_response(conn, 200)
+    end
+
+    test "rejects request on /api/secure/profile if session is expired", %{conn: conn} do
+      conn = 
+        conn
+        |> init_test_session(web3_address: "0x9999999999999999999999999999999999999999", expires_at: System.system_time(:second) - 100)
+        |> get("/api/secure/profile")
+
+      assert %{"error" => "Session expired. Please sign in again."} = json_response(conn, 401)
     end
   end
 
@@ -164,24 +175,33 @@ defmodule LuxAppWeb.AuthControllerTest do
     end
   end
 
-  describe "SessionManager and Permissions RBAC" do
-    alias LuxAppWeb.Auth.{SessionManager, Permissions}
-
+  describe "SessionManager, Permissions RBAC and Production RPC Adapters" do
     test "validates active session and rejects expired session", %{conn: conn} do
       conn = init_test_session(conn, %{})
-      conn = SessionManager.init_session(conn, "0x123", "user", 86400)
+      conn = SessionManager.init_session(conn, "0x123", "user", "1", 86400)
 
       assert {:ok, _conn} = SessionManager.validate_session(conn)
 
       # Expired session (expires_at in the past)
       expired_conn = init_test_session(conn, expires_at: System.system_time(:second) - 100)
-      assert {:error, :session_expired} = SessionManager.validate_session(expired_conn)
+      assert {:error, :session_expired, _cleaned_conn} = SessionManager.validate_session(expired_conn)
     end
 
     test "enforces role permissions correctly" do
       assert Permissions.has_permission?("admin", :manage_users) == true
       assert Permissions.has_permission?("user", :manage_users) == false
       assert Permissions.has_permission?("user", :read) == true
+    end
+
+    test "RPCVerifier and RPCTokenGater default closed behavior" do
+      # Zero-address contract must return false (Default Closed)
+      assert RPCVerifier.is_valid_signature?("msg", "0x00", "0x0000000000000000000000000000000000000000", "1") == false
+      assert RPCTokenGater.has_access?("0x123", "1", "0x0000000000000000000000000000000000000000", 1) == false
+      assert RPCTokenGater.has_access?("0x123", "1", nil, 1) == false
+
+      # Network/RPC error on unroutable host must return false (Default Closed)
+      assert RPCVerifier.is_valid_signature?("msg", "0x00", "0x1111111111111111111111111111111111111111", "99999") == false
+      assert RPCTokenGater.has_access?("0x123", "99999", "0x1111111111111111111111111111111111111111", 1) == false
     end
   end
 end

@@ -1,7 +1,6 @@
 defmodule LuxAppWeb.Auth.Siwe do
   @moduledoc """
-  SIWE (Sign-In with Ethereum) EIP-4361 verification logic.
-  Handles full payload parsing, field validation, and cryptographic signature verification.
+  SIWE (Sign-In with Ethereum) EIP-4361 verification logic bound to chain ID.
   """
   alias LuxAppWeb.Auth.AuditLogger
 
@@ -16,7 +15,7 @@ defmodule LuxAppWeb.Auth.Siwe do
            :ok <- verify_issued_at(parsed.issued_at),
            :ok <- verify_not_before(parsed.not_before),
            :ok <- verify_expiration(parsed.expiration_time),
-           :ok <- check_signature(message, signature, parsed.address) do
+           :ok <- check_signature(message, signature, parsed.address, parsed.chain_id) do
         {:ok, parsed.address}
       else
         err -> err
@@ -33,7 +32,6 @@ defmodule LuxAppWeb.Auth.Siwe do
   end
 
   def parse_message(message) do
-    # Strict EIP-4361 Regex avoiding wildcard overflow
     regex = ~r/^(?<domain>[a-zA-Z0-9\.-]+(?::\d+)?) wants you to sign in with your Ethereum account:\n(?<address>0x[a-fA-F0-9]{40})\n\n(?:(?<statement>[^\n]+)\n\n)?URI: (?<uri>[^\n]+)\nVersion: (?<version>\d+)\nChain ID: (?<chain_id>\d+)\nNonce: (?<nonce>[a-zA-Z0-9]+)\nIssued At: (?<issued_at>[^\n]+)(?:\nExpiration Time: (?<expiration_time>[^\n]+))?(?:\nNot Before: (?<not_before>[^\n]+))?(?:\nRequest ID: (?<request_id>[^\n]+))?(?:\nResources:\n(?<resources>.*))?$/s
 
     case Regex.named_captures(regex, message) do
@@ -120,7 +118,7 @@ defmodule LuxAppWeb.Auth.Siwe do
     end
   end
 
-  def check_signature(message, signature, expected_address) do
+  def check_signature(message, signature, expected_address, chain_id) do
     message_length = byte_size(message)
     eth_message = "\x19Ethereum Signed Message:\n#{message_length}#{message}"
     
@@ -142,19 +140,19 @@ defmodule LuxAppWeb.Auth.Siwe do
             if String.downcase(expected_address) == recovered_address do
               :ok
             else
-              check_multisig_fallback(message, signature, expected_address)
+              check_multisig_fallback(message, signature, expected_address, chain_id)
             end
           _ ->
-            check_multisig_fallback(message, signature, expected_address)
+            check_multisig_fallback(message, signature, expected_address, chain_id)
         end
       _ ->
-        check_multisig_fallback(message, signature, expected_address)
+        check_multisig_fallback(message, signature, expected_address, chain_id)
     end
   end
 
-  defp check_multisig_fallback(message, signature, expected_address) do
+  defp check_multisig_fallback(message, signature, expected_address, chain_id) do
     verifier = Application.get_env(:lux_app, :eip1271_verifier, LuxAppWeb.Auth.RPCVerifier)
-    if verifier.is_valid_signature?(message, signature, expected_address) do
+    if verifier.is_valid_signature?(message, signature, expected_address, chain_id) do
       :ok
     else
       {:error, :invalid_signature_and_fallback_failed}

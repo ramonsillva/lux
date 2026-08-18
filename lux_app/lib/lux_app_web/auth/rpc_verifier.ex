@@ -1,8 +1,8 @@
 defmodule LuxAppWeb.Auth.RPCVerifier do
   @moduledoc """
   Production implementation of ERC-1271 verifier calling `isValidSignature(bytes32, bytes)` via JSON-RPC.
+  Binds RPC queries dynamically to chain_id and enforces Default Closed security on any error.
   Magic value expected: 0x1626ba7e
-  Default Closed: returns false on network, decode, timeout, or revert errors.
   """
   @behaviour LuxAppWeb.Auth.EIP1271Verifier
 
@@ -10,31 +10,39 @@ defmodule LuxAppWeb.Auth.RPCVerifier do
   @magic_value "1626ba7e"
 
   @impl true
-  def is_valid_signature?(message, signature, contract_address) do
+  def is_valid_signature?(message, signature, contract_address, chain_id) do
     try do
-      # 1. Compute EIP-191 message hash: \x19Ethereum Signed Message:\n<length><message>
-      eth_message = "\x19Ethereum Signed Message:\n#{byte_size(message)}#{message}"
-      hash = ExKeccak.hash_256(eth_message)
-      hash_hex = Base.encode16(hash, case: :lower)
+      rpc_url = get_rpc_url_for_chain(chain_id)
 
-      # 2. Format isValidSignature(bytes32,bytes) payload: selector 0x1626ba7e
-      clean_sig = String.replace(signature, "0x", "")
-      calldata = "0x1626ba7e" <> hash_hex <> pad_bytes(clean_sig)
+      if is_nil(rpc_url) or is_nil(contract_address) or contract_address == "0x0000000000000000000000000000000000000000" do
+        false
+      else
+        eth_message = "\x19Ethereum Signed Message:\n#{byte_size(message)}#{message}"
+        hash = ExKeccak.hash_256(eth_message)
+        hash_hex = Base.encode16(hash, case: :lower)
 
-      rpc_url = Application.get_env(:lux_app, :ethereum_rpc_url, "http://127.0.0.1:8545")
+        clean_sig = String.replace(signature, "0x", "")
+        calldata = "0x1626ba7e" <> hash_hex <> pad_bytes(clean_sig)
 
-      case perform_json_rpc(rpc_url, contract_address, calldata) do
-        {:ok, return_data} ->
-          clean_return = String.replace(return_data, "0x", "")
-          String.starts_with?(clean_return, @magic_value)
+        case perform_json_rpc(rpc_url, contract_address, calldata) do
+          {:ok, return_data} ->
+            clean_return = String.replace(return_data, "0x", "")
+            String.starts_with?(clean_return, @magic_value)
 
-        _error ->
-          # Default closed on any network/RPC error
-          false
+          _error ->
+            false
+        end
       end
     rescue
       _ -> false
     end
+  end
+
+  def get_rpc_url_for_chain(chain_id) do
+    chain_str = to_string(chain_id)
+    chain_rpcs = Application.get_env(:lux_app, :chain_rpcs, %{"1" => "http://127.0.0.1:8545"})
+
+    Map.get(chain_rpcs, chain_str) || Application.get_env(:lux_app, :ethereum_rpc_url)
   end
 
   defp perform_json_rpc(rpc_url, contract_address, calldata) do

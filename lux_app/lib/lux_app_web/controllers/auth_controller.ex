@@ -26,7 +26,7 @@ defmodule LuxAppWeb.AuthController do
           conn = 
             conn
             |> delete_session(:siwe_nonce)
-            |> SessionManager.init_session(address, "user")
+            |> SessionManager.init_session(address, "user", expected_chain_id)
 
           json(conn, %{success: true, address: address})
 
