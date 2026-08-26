@@ -1,10 +1,10 @@
 defmodule LuxAppWeb.Auth.RPCVerifier do
   @moduledoc """
   Production implementation of ERC-1271 verifier calling `isValidSignature(bytes32, bytes)` via JSON-RPC.
-  Binds RPC queries dynamically to chain_id and enforces Default Closed security on any error.
+  Binds RPC queries dynamically to chain_id and enforces Default Closed security on any error or unconfigured chain.
   Magic value expected: 0x1626ba7e
   """
-  @behaviour LuxAppWeb.Auth.EIP1271Verifier
+  @behaviour LuxAppWeb.Auth.AuthContractVerifier || LuxAppWeb.Auth.EIP1271Verifier
 
   # Magic value 0x1626ba7e defined by ERC-1271 (bytes4)
   @magic_value "1626ba7e"
@@ -14,7 +14,7 @@ defmodule LuxAppWeb.Auth.RPCVerifier do
     try do
       rpc_url = get_rpc_url_for_chain(chain_id)
 
-      if is_nil(rpc_url) or is_nil(contract_address) or contract_address == "0x0000000000000000000000000000000000000000" do
+      if is_nil(rpc_url) or is_nil(contract_address) or contract_address == "" or contract_address == "0x0000000000000000000000000000000000000000" do
         false
       else
         eth_message = "\x19Ethereum Signed Message:\n#{byte_size(message)}#{message}"
@@ -40,9 +40,8 @@ defmodule LuxAppWeb.Auth.RPCVerifier do
 
   def get_rpc_url_for_chain(chain_id) do
     chain_str = to_string(chain_id)
-    chain_rpcs = Application.get_env(:lux_app, :chain_rpcs, %{"1" => "http://127.0.0.1:8545"})
-
-    Map.get(chain_rpcs, chain_str) || Application.get_env(:lux_app, :ethereum_rpc_url)
+    chain_rpcs = Application.get_env(:lux_app, :chain_rpcs, %{})
+    Map.get(chain_rpcs, chain_str)
   end
 
   defp perform_json_rpc(rpc_url, contract_address, calldata) do
